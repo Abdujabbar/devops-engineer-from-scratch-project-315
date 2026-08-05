@@ -30,6 +30,12 @@ The Ansible commands use `uv` to create a local `.venv` and install the Python t
 
 The playbook at `playbooks/bootstrap.yml` installs Docker Engine, the Docker Compose plugin, base utilities, adds the `abdu` user to the `docker` group, and enables UFW with only SSH, HTTP/HTTPS, app port `8080`, and management port `9090` allowed. The playbook is intended to be idempotent, so repeated `make ansible-provision` runs should keep the server in the same expected state.
 
+The deployment host is also available through DNS:
+
+| Hostname | Record | Target |
+|----------|--------|--------|
+| `hexlet.chickenkiller.com` | `A` | `158.160.15.192` |
+
 ## Deployment
 
 Deploy the published Docker image to the VM with:
