@@ -1,10 +1,19 @@
 # Project DevOps Deploy
 
-Bulletin board service.
+Project DevOps Deploy is a bulletin board application with a Spring Boot backend and a React Admin frontend. The backend exposes bulletin CRUD APIs, image upload endpoints, Swagger UI, and Actuator health/metrics endpoints. The default `dev` profile uses an in-memory H2 database and seeded sample data so the service is usable immediately after startup.
+
+## Expected Docker Artifact
+
+The deployment artifact for this fork is a Docker image built from the repository `Dockerfile`. Build and run it from the repository root:
+
+```bash
+make docker-build
+make docker-run
+```
+
+By default this creates and runs `project-devops-deploy:local`, exposing the application at `http://localhost:8080` and Actuator endpoints at `http://localhost:9090`.
 
 > **Fork policy**: this upstream repository is read-only. We do not review or merge pull requests and we do not accept infrastructure changes (Dockerfiles, Ansible roles, CI/CD workflows, etc.). To experiment or extend the project, fork it and work inside your own repository.
-
-The default `dev` profile uses an in-memory H2 database and seeds 10 sample bulletins through `DataInitializer`, so the API works immediately after startup.
 
 API documentation is available via Swagger UI at `http://localhost:8080/swagger-ui/index.html`.
 
