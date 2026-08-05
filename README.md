@@ -1,5 +1,7 @@
 # Project DevOps Deploy
 
+[![CI](https://github.com/Abdujabbar/project-devops-deploy/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Abdujabbar/project-devops-deploy/actions/workflows/ci.yml)
+
 Project DevOps Deploy is a bulletin board application with a Spring Boot backend and a React Admin frontend. The backend exposes bulletin CRUD APIs, image upload endpoints, Swagger UI, and Actuator health/metrics endpoints. The default `dev` profile uses an in-memory H2 database and seeded sample data so the service is usable immediately after startup.
 
 ## Expected Docker Artifact
@@ -12,6 +14,8 @@ make docker-run
 ```
 
 By default this creates and runs `project-devops-deploy:local`, exposing the application at `http://localhost:8080` and Actuator endpoints at `http://localhost:9090`.
+
+On successful pushes to `main`, CI publishes the image to GitHub Container Registry as `ghcr.io/abdujabbar/project-devops-deploy:latest` and `ghcr.io/abdujabbar/project-devops-deploy:<git-sha>`.
 
 > **Fork policy**: this upstream repository is read-only. We do not review or merge pull requests and we do not accept infrastructure changes (Dockerfiles, Ansible roles, CI/CD workflows, etc.). To experiment or extend the project, fork it and work inside your own repository.
 
