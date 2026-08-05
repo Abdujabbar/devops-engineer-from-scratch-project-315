@@ -1,0 +1,18 @@
+services:
+  app:
+    image: "{{ app_image_repository }}:{{ app_image_tag }}"
+    container_name: "{{ app_container_name }}"
+    restart: "{{ app_restart_policy }}"
+    env_file:
+      - "{{ app_root_dir }}/app.env"
+    ports:
+      - "{{ app_http_port }}:8080"
+      - "{{ app_management_port }}:{{ app_management_port }}"
+    volumes:
+      - "{{ app_data_dir }}:/data"
+      - "{{ app_logs_dir }}:/var/log/project-devops-deploy"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

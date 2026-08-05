@@ -1,0 +1,86 @@
+---
+- name: Ensure application directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default(app_user) }}"
+    group: "{{ item.group | default(app_user) }}"
+    mode: "{{ item.mode | default('0755') }}"
+  loop:
+    - path: "{{ app_root_dir }}"
+      owner: root
+      group: root
+    - path: "{{ app_data_dir }}"
+      owner: "{{ app_container_uid }}"
+      group: "{{ app_container_gid }}"
+      mode: "0770"
+    - path: "{{ app_logs_dir }}"
+      owner: "{{ app_container_uid }}"
+      group: "{{ app_container_gid }}"
+      mode: "0770"
+
+- name: Render Docker Compose file
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ app_root_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Render application environment file
+  ansible.builtin.template:
+    src: app.env.j2
+    dest: "{{ app_root_dir }}/app.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: Log in to container registry when credentials are configured
+  ansible.builtin.command:
+    argv:
+      - docker
+      - login
+      - ghcr.io
+      - --username
+      - "{{ app_registry_username }}"
+      - --password-stdin
+    stdin: "{{ app_registry_password }}"
+  register: docker_login
+  changed_when: "'Login Succeeded' in docker_login.stdout"
+  no_log: true
+  when:
+    - app_registry_username | length > 0
+    - app_registry_password | length > 0
+
+- name: Pull application image
+  ansible.builtin.command:
+    cmd: docker compose -f {{ app_root_dir }}/compose.yml pull app
+  register: docker_pull
+  changed_when: "'Downloaded newer image' in docker_pull.stdout or 'Pull complete' in docker_pull.stdout"
+
+- name: Start or update application container
+  ansible.builtin.command:
+    cmd: docker compose -f {{ app_root_dir }}/compose.yml up -d --remove-orphans
+  register: docker_compose_up
+  changed_when: "'Started' in docker_compose_up.stdout or 'Recreated' in docker_compose_up.stdout or 'Created' in docker_compose_up.stdout"
+
+- name: Wait for application health endpoint
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ app_management_port }}/actuator/health/readiness"
+    method: GET
+    status_code: 200
+  register: app_health
+  retries: 30
+  delay: 2
+  until: app_health.status == 200
+
+- name: Show running deployment
+  ansible.builtin.command:
+    cmd: docker inspect --format {% raw %}'Image={{ .Config.Image }} State={{ .State.Status }} Started={{ .State.StartedAt }}'{% endraw %} {{ app_container_name }}
+  register: app_container_state
+  changed_when: false
+
+- name: Print deployment state
+  ansible.builtin.debug:
+    msg: "{{ app_container_state.stdout }}"

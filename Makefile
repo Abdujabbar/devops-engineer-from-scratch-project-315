@@ -9,6 +9,9 @@ ANSIBLE ?= $(VENV_DIR)/bin/ansible
 ANSIBLE_PLAYBOOK_CMD ?= $(VENV_DIR)/bin/ansible-playbook
 ANSIBLE_INVENTORY ?= inventory/hosts.yml
 ANSIBLE_PLAYBOOK ?= playbooks/bootstrap.yml
+DEPLOY_PLAYBOOK ?= playbooks/deploy.yml
+IMAGE_TAG ?= latest
+ANSIBLE_ARGS ?=
 UV_LOCK := $(wildcard uv.lock)
 
 help:
@@ -30,6 +33,8 @@ help:
 	@printf '  %-18s %s\n' 'make ansible-ping' 'Check SSH/Ansible connectivity to the VM.'
 	@printf '  %-18s %s\n' 'make ansible-check' 'Dry-run the VM provisioning playbook.'
 	@printf '  %-18s %s\n' 'make ansible-provision' 'Provision Docker, user permissions, and firewall on the VM.'
+	@printf '  %-18s %s\n' 'make deploy' 'Pull and run the Docker image on the VM.'
+	@printf '  %-18s %s\n' 'make rollback' 'Deploy a previous image tag; requires IMAGE_TAG=<tag>.'
 	@printf '\n%s\n' 'Docker variables:'
 	@printf '  %-18s %s\n' 'DOCKER_IMAGE' 'Image name, default: project-devops-deploy.'
 	@printf '  %-18s %s\n' 'DOCKER_TAG' 'Image tag, default: local.'
@@ -39,6 +44,8 @@ help:
 	@printf '\n%s\n' 'Examples:'
 	@printf '  %s\n' 'make docker-run APP_PORT=8081 MANAGEMENT_PORT=9091'
 	@printf '  %s\n' 'make docker-run DOCKER_RUN_ARGS="-e SPRING_PROFILES_ACTIVE=prod"'
+	@printf '  %s\n' 'make deploy IMAGE_TAG=latest'
+	@printf '  %s\n' 'make rollback IMAGE_TAG=<previous-git-sha>'
 
 test:
 	./gradlew test
@@ -85,9 +92,16 @@ ansible-ping: venv
 	$(ANSIBLE) app -i $(ANSIBLE_INVENTORY) -m ping
 
 ansible-check: venv
-	$(ANSIBLE_PLAYBOOK_CMD) -i $(ANSIBLE_INVENTORY) $(ANSIBLE_PLAYBOOK) --check --diff
+	$(ANSIBLE_PLAYBOOK_CMD) $(ANSIBLE_ARGS) -i $(ANSIBLE_INVENTORY) $(ANSIBLE_PLAYBOOK) --check --diff
 
 ansible-provision: venv
-	$(ANSIBLE_PLAYBOOK_CMD) -i $(ANSIBLE_INVENTORY) $(ANSIBLE_PLAYBOOK)
+	$(ANSIBLE_PLAYBOOK_CMD) $(ANSIBLE_ARGS) -i $(ANSIBLE_INVENTORY) $(ANSIBLE_PLAYBOOK)
 
-.PHONY: help test start run update-gradle update-deps install build lint lint-fix docker-test docker-build docker-run venv ansible-ping ansible-check ansible-provision
+deploy: venv
+	$(ANSIBLE_PLAYBOOK_CMD) $(ANSIBLE_ARGS) -i $(ANSIBLE_INVENTORY) $(DEPLOY_PLAYBOOK) -e image_tag=$(IMAGE_TAG)
+
+rollback: venv
+	@test "$(IMAGE_TAG)" != "latest" || (printf '%s\n' 'Set IMAGE_TAG to a previous immutable tag, for example: make rollback IMAGE_TAG=<previous-git-sha>' && exit 1)
+	$(ANSIBLE_PLAYBOOK_CMD) $(ANSIBLE_ARGS) -i $(ANSIBLE_INVENTORY) $(DEPLOY_PLAYBOOK) -e image_tag=$(IMAGE_TAG)
+
+.PHONY: help test start run update-gradle update-deps install build lint lint-fix docker-test docker-build docker-run venv ansible-ping ansible-check ansible-provision deploy rollback

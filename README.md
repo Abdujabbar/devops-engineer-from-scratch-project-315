@@ -30,6 +30,37 @@ The Ansible commands use `uv` to create a local `.venv` and install the Python t
 
 The playbook at `playbooks/bootstrap.yml` installs Docker Engine, the Docker Compose plugin, base utilities, adds the `abdu` user to the `docker` group, and enables UFW with only SSH, HTTP/HTTPS, app port `8080`, and management port `9090` allowed. The playbook is intended to be idempotent, so repeated `make ansible-provision` runs should keep the server in the same expected state.
 
+## Deployment
+
+Deploy the published Docker image to the VM with:
+
+```bash
+make deploy
+```
+
+This runs `playbooks/deploy.yml`, pulls `ghcr.io/abdujabbar/project-devops-deploy:latest`, renders `/opt/project-devops-deploy/compose.yml`, and restarts the app through Docker Compose. Runtime data is stored under `/opt/project-devops-deploy/data`, and `/opt/project-devops-deploy/logs` is prepared for application log bind mounts. The deploy role owns these persistent directories with the container user UID/GID so the non-root app process can write to them after every restart.
+
+Deploy a specific immutable build by passing the Git SHA tag published by CI:
+
+```bash
+make deploy IMAGE_TAG=<git-sha>
+```
+
+Rollback uses the same predictable tag strategy:
+
+```bash
+make rollback IMAGE_TAG=<previous-git-sha>
+```
+
+Do not put secrets in plain repository files. Copy `inventory/group_vars/app/vault.yml.example` to `inventory/group_vars/app/vault.yml`, fill in registry/database/S3 values, then encrypt it:
+
+```bash
+make venv
+.venv/bin/ansible-vault encrypt inventory/group_vars/app/vault.yml
+```
+
+Run deploys that need Vault values with `ANSIBLE_ARGS='--ask-vault-pass'` or `ANSIBLE_ARGS='--vault-password-file .vault-password'`. The `.vault-password` file and real `vault.yml` are ignored by git.
+
 > **Fork policy**: this upstream repository is read-only. We do not review or merge pull requests and we do not accept infrastructure changes (Dockerfiles, Ansible roles, CI/CD workflows, etc.). To experiment or extend the project, fork it and work inside your own repository.
 
 API documentation is available via Swagger UI at `http://localhost:8080/swagger-ui/index.html`.

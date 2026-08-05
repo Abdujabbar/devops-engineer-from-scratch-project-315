@@ -1,5 +1,8 @@
 HELP.md
 .venv/
+.ansible/
+.vault-password
+inventory/group_vars/app/vault.yml
 .gradle
 build/
 !gradle/wrapper/gradle-wrapper.jar
