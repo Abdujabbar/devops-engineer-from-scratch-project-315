@@ -17,6 +17,19 @@ By default this creates and runs `project-devops-deploy:local`, exposing the app
 
 On successful pushes to `main`, CI publishes the image to GitHub Container Registry as `ghcr.io/abdujabbar/project-devops-deploy:latest` and `ghcr.io/abdujabbar/project-devops-deploy:<git-sha>`.
 
+## VM Provisioning
+
+The Yandex Cloud VM is described in `inventory/hosts.yml`. Provision it with Ansible from the repository root:
+
+```bash
+make ansible-ping
+make ansible-provision
+```
+
+The Ansible commands use `uv` to create a local `.venv` and install the Python tools from `pyproject.toml`, so a global Ansible installation is not required.
+
+The playbook at `playbooks/bootstrap.yml` installs Docker Engine, the Docker Compose plugin, base utilities, adds the `abdu` user to the `docker` group, and enables UFW with only SSH, HTTP/HTTPS, app port `8080`, and management port `9090` allowed. The playbook is intended to be idempotent, so repeated `make ansible-provision` runs should keep the server in the same expected state.
+
 > **Fork policy**: this upstream repository is read-only. We do not review or merge pull requests and we do not accept infrastructure changes (Dockerfiles, Ansible roles, CI/CD workflows, etc.). To experiment or extend the project, fork it and work inside your own repository.
 
 API documentation is available via Swagger UI at `http://localhost:8080/swagger-ui/index.html`.
@@ -56,6 +69,7 @@ All other variables supported by Spring Boot can be overridden the same way; che
 - Gradle 9.2.1.
 - PostgreSQL only if you run the `prod` profile with an external database.
 - Make.
+- uv for VM provisioning tools.
 - NodeJS 20+
 
 ## Running

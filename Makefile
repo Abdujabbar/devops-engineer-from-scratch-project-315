@@ -3,6 +3,13 @@ DOCKER_TAG ?= local
 APP_PORT ?= 8080
 MANAGEMENT_PORT ?= 9090
 DOCKER_RUN_ARGS ?=
+UV ?= uv
+VENV_DIR ?= .venv
+ANSIBLE ?= $(VENV_DIR)/bin/ansible
+ANSIBLE_PLAYBOOK_CMD ?= $(VENV_DIR)/bin/ansible-playbook
+ANSIBLE_INVENTORY ?= inventory/hosts.yml
+ANSIBLE_PLAYBOOK ?= playbooks/bootstrap.yml
+UV_LOCK := $(wildcard uv.lock)
 
 help:
 	@printf '%s\n' 'Available commands:'
@@ -19,6 +26,10 @@ help:
 	@printf '  %-18s %s\n' 'make docker-test' 'Run backend tests inside Docker with visible output.'
 	@printf '  %-18s %s\n' 'make docker-build' 'Build the Docker image.'
 	@printf '  %-18s %s\n' 'make docker-run' 'Run the Docker image on APP_PORT and MANAGEMENT_PORT.'
+	@printf '  %-18s %s\n' 'make venv' 'Create .venv and sync Python tools with uv.'
+	@printf '  %-18s %s\n' 'make ansible-ping' 'Check SSH/Ansible connectivity to the VM.'
+	@printf '  %-18s %s\n' 'make ansible-check' 'Dry-run the VM provisioning playbook.'
+	@printf '  %-18s %s\n' 'make ansible-provision' 'Provision Docker, user permissions, and firewall on the VM.'
 	@printf '\n%s\n' 'Docker variables:'
 	@printf '  %-18s %s\n' 'DOCKER_IMAGE' 'Image name, default: project-devops-deploy.'
 	@printf '  %-18s %s\n' 'DOCKER_TAG' 'Image tag, default: local.'
@@ -64,4 +75,19 @@ docker-build:
 docker-run:
 	docker run --rm -p $(APP_PORT):8080 -p $(MANAGEMENT_PORT):9090 $(DOCKER_RUN_ARGS) $(DOCKER_IMAGE):$(DOCKER_TAG)
 
-.PHONY: help test start run update-gradle update-deps install build lint lint-fix docker-test docker-build docker-run
+$(VENV_DIR)/.requirements-installed: pyproject.toml $(UV_LOCK)
+	$(UV) sync
+	touch $(VENV_DIR)/.requirements-installed
+
+venv: $(VENV_DIR)/.requirements-installed
+
+ansible-ping: venv
+	$(ANSIBLE) app -i $(ANSIBLE_INVENTORY) -m ping
+
+ansible-check: venv
+	$(ANSIBLE_PLAYBOOK_CMD) -i $(ANSIBLE_INVENTORY) $(ANSIBLE_PLAYBOOK) --check --diff
+
+ansible-provision: venv
+	$(ANSIBLE_PLAYBOOK_CMD) -i $(ANSIBLE_INVENTORY) $(ANSIBLE_PLAYBOOK)
+
+.PHONY: help test start run update-gradle update-deps install build lint lint-fix docker-test docker-build docker-run venv ansible-ping ansible-check ansible-provision
