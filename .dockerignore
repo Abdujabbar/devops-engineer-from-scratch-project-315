@@ -1,0 +1,17 @@
+.git
+.gradle
+build
+out
+
+.idea
+.vscode
+*.iml
+*.iws
+*.ipr
+
+*.db
+*.log
+
+frontend/node_modules
+frontend/dist
+frontend/.vite
