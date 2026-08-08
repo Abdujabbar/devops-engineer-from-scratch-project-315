@@ -5,6 +5,8 @@ MANAGEMENT_PORT ?= 9090
 DOCKER_RUN_ARGS ?=
 UV ?= uv
 VENV_DIR ?= .venv
+UV_PYTHON ?= python3.12
+CA_CERT_FILE ?= $(HOME)/Downloads/CA.pem
 ANSIBLE ?= $(VENV_DIR)/bin/ansible
 ANSIBLE_PLAYBOOK_CMD ?= $(VENV_DIR)/bin/ansible-playbook
 ANSIBLE_INVENTORY ?= inventory/hosts.yml
@@ -12,7 +14,6 @@ ANSIBLE_PLAYBOOK ?= playbooks/bootstrap.yml
 DEPLOY_PLAYBOOK ?= playbooks/deploy.yml
 IMAGE_TAG ?= latest
 ANSIBLE_ARGS ?=
-UV_LOCK := $(wildcard uv.lock)
 
 help:
 	@printf '%s\n' 'Available commands:'
@@ -82,14 +83,11 @@ docker-build:
 docker-run:
 	docker run --rm -p $(APP_PORT):8080 -p $(MANAGEMENT_PORT):9090 $(DOCKER_RUN_ARGS) $(DOCKER_IMAGE):$(DOCKER_TAG)
 
-$(VENV_DIR)/.requirements-installed: pyproject.toml $(UV_LOCK)
-	$(UV) sync
-	touch $(VENV_DIR)/.requirements-installed
-
-venv: $(VENV_DIR)/.requirements-installed
+venv:
+	SSL_CERT_FILE=$(CA_CERT_FILE) $(UV) sync --python $(UV_PYTHON)
 
 ansible-ping: venv
-	$(ANSIBLE) app -i $(ANSIBLE_INVENTORY) -m ping
+	$(ANSIBLE) $(ANSIBLE_ARGS) app -i $(ANSIBLE_INVENTORY) -m ping
 
 ansible-check: venv
 	$(ANSIBLE_PLAYBOOK_CMD) $(ANSIBLE_ARGS) -i $(ANSIBLE_INVENTORY) $(ANSIBLE_PLAYBOOK) --check --diff

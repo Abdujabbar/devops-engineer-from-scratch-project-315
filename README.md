@@ -26,7 +26,7 @@ make ansible-ping
 make ansible-provision
 ```
 
-The Ansible commands use `uv` to create a local `.venv` and install the Python tools from `pyproject.toml`, so a global Ansible installation is not required.
+The Ansible commands use `uv` to create a local `.venv` and install the Python tools from `pyproject.toml`, so a global Ansible installation is not required. `uv sync` uses `CA_CERT_FILE`, which defaults to `~/Downloads/CA.pem`; override it if the Yandex CA bundle is stored elsewhere. If `inventory/group_vars/app/vault.yml` exists and is encrypted, pass Vault options through `ANSIBLE_ARGS`, for example `make ansible-ping ANSIBLE_ARGS='--ask-vault-pass'`.
 
 The playbook at `playbooks/bootstrap.yml` installs Docker Engine, the Docker Compose plugin, base utilities, adds the `abdu` user to the `docker` group, and enables UFW with only SSH, HTTP/HTTPS, app port `8080`, and management port `9090` allowed. The playbook is intended to be idempotent, so repeated `make ansible-provision` runs should keep the server in the same expected state.
 
@@ -36,6 +36,12 @@ The deployment host is also available through DNS:
 |----------|--------|--------|
 | `hexlet.chickenkiller.com` | `A` | `158.160.15.192` |
 
+After deployment, Nginx serves the app through the domain. Port `80` is used for Let's Encrypt validation and redirects to HTTPS after the certificate is issued:
+
+```text
+https://hexlet.chickenkiller.com
+```
+
 ## Deployment
 
 Deploy the published Docker image to the VM with:
@@ -44,7 +50,78 @@ Deploy the published Docker image to the VM with:
 make deploy
 ```
 
-This runs `playbooks/deploy.yml`, pulls `ghcr.io/abdujabbar/project-devops-deploy:latest`, renders `/opt/project-devops-deploy/compose.yml`, and restarts the app through Docker Compose. Runtime data is stored under `/opt/project-devops-deploy/data`, and `/opt/project-devops-deploy/logs` is prepared for application log bind mounts. The deploy role owns these persistent directories with the container user UID/GID so the non-root app process can write to them after every restart.
+This runs `playbooks/deploy.yml`, pulls `ghcr.io/abdujabbar/project-devops-deploy:latest`, renders `/opt/project-devops-deploy/compose.yml`, checks the Yandex Managed PostgreSQL endpoint, runs the schema migration step, and restarts the app through Docker Compose. Runtime data is stored under `/opt/project-devops-deploy/data`, and application log mounts are prepared under `/opt/project-devops-deploy/logs`.
+
+The same Compose deployment starts an `nginx:1.29-alpine` reverse proxy on host ports `80` and `443`. Nginx forwards traffic to the internal `app:8080` service, caches static assets for 30 days, caches `/api/files/raw` for 10 minutes, caches `/api/files/view` for 2 minutes, and bypasses caching for uploads and non-GET requests. Cache files live under `/opt/project-devops-deploy/nginx-cache`.
+
+Let's Encrypt certificates are issued with a Certbot container using the webroot challenge under `/opt/project-devops-deploy/certbot-www`. Certificates are stored under `/opt/project-devops-deploy/letsencrypt`, mounted read-only into Nginx, and renewed by the host systemd timer `project-devops-deploy-certbot-renew.timer`. The renewal service reloads Nginx after `certbot renew`. Set `vault_letsencrypt_email` in Vault if you want Let's Encrypt expiry notices; if it is blank, Certbot registers without email. HTTPS uses TLS 1.2/1.3 only, disables session tickets, and redirects all ordinary HTTP traffic to HTTPS after the first certificate is available.
+
+Check HTTPS and renewal after deployment:
+
+```bash
+curl -I http://hexlet.chickenkiller.com
+curl -fsS https://hexlet.chickenkiller.com/api/bulletins
+ssh -i ~/.ssh/abdu abdu@158.160.15.192 'systemctl list-timers project-devops-deploy-certbot-renew.timer'
+ssh -i ~/.ssh/abdu abdu@158.160.15.192 'sudo systemctl start project-devops-deploy-certbot-renew.service'
+```
+
+PostgreSQL is expected to run in Yandex Managed PostgreSQL, not as a container on the VM. Configure the MDB security group so PostgreSQL is reachable only from the deployment VM, preferably through private network access. The VM firewall still exposes only SSH, HTTP/HTTPS, `8080`, and `9090`; database port `6432` is not opened publicly on the VM. During deploy, Ansible copies the bundled Yandex Cloud CA certificate to `/opt/project-devops-deploy/root.crt` and mounts it into the app containers for verified TLS connections.
+
+### Yandex Object Storage
+
+Production image uploads use Yandex Object Storage through the S3-compatible API. Keep the bucket private; the backend returns short-lived presigned URLs, so public bucket read access is not required.
+
+Create the bucket and service-account key from an authenticated YC CLI session:
+
+```bash
+BUCKET="project-devops-deploy-images"
+SA_NAME="project-devops-deploy-s3"
+
+yc storage bucket create "$BUCKET" --default-storage-class standard
+yc iam service-account create --name "$SA_NAME"
+SA_ID="$(yc iam service-account list --format json | jq -r ".[] | select(.name == \"$SA_NAME\") | .id")"
+```
+
+Grant the app service account bucket-level `storage.uploader` access in the Yandex Cloud console: Object Storage → bucket → Security → Access bindings → Assign roles → service account `$SA_NAME` → `storage.uploader`. This gives the application object read/upload permissions without delete or bucket configuration rights. See the official docs for [bucket creation](https://yandex.cloud/en/docs/storage/operations/buckets/create), [bucket IAM bindings](https://yandex.cloud/en/docs/storage/operations/buckets/iam-access), and [Object Storage roles](https://yandex.cloud/en/docs/storage/security/).
+
+Generate the static S3 key and save the output immediately; YC shows the secret only once:
+
+```bash
+yc iam access-key create \
+  --service-account-name "$SA_NAME" \
+  --description "project-devops-deploy object storage"
+```
+
+Store the resulting `key_id` and `secret` in Ansible Vault:
+
+```yaml
+vault_spring_profiles: "prod"
+vault_letsencrypt_email: "admin@example.com"
+vault_s3_bucket: "project-devops-deploy-images"
+vault_s3_region: "ru-central1"
+vault_s3_endpoint: "https://storage.yandexcloud.net"
+vault_s3_access_key: "<key_id>"
+vault_s3_secret_key: "<secret>"
+vault_s3_cdn_url: ""
+```
+
+If you later move deploys into GitHub Actions, store the same values as repository secrets with `gh secret set`, but do not commit them to the repository.
+
+Before the first PostgreSQL-backed deploy, create the encrypted Vault file and set the Managed PostgreSQL connection values:
+
+```bash
+make venv
+cp inventory/group_vars/app/vault.yml.example inventory/group_vars/app/vault.yml
+# Fill vault_postgres_host, vault_postgres_username, vault_postgres_password.
+# Fill vault_s3_* values when using the prod profile.
+.venv/bin/ansible-vault encrypt inventory/group_vars/app/vault.yml
+```
+
+Then deploy with Vault enabled:
+
+```bash
+make deploy ANSIBLE_ARGS='--ask-vault-pass'
+```
 
 Deploy a specific immutable build by passing the Git SHA tag published by CI:
 
@@ -58,14 +135,18 @@ Rollback uses the same predictable tag strategy:
 make rollback IMAGE_TAG=<previous-git-sha>
 ```
 
-Do not put secrets in plain repository files. Copy `inventory/group_vars/app/vault.yml.example` to `inventory/group_vars/app/vault.yml`, fill in registry/database/S3 values, then encrypt it:
+Do not put secrets in plain repository files. To edit encrypted registry/database/S3 values later, use:
 
 ```bash
 make venv
-.venv/bin/ansible-vault encrypt inventory/group_vars/app/vault.yml
+.venv/bin/ansible-vault edit inventory/group_vars/app/vault.yml
 ```
 
 Run deploys that need Vault values with `ANSIBLE_ARGS='--ask-vault-pass'` or `ANSIBLE_ARGS='--vault-password-file .vault-password'`. The `.vault-password` file and real `vault.yml` are ignored by git.
+
+At minimum, deployment requires PostgreSQL values (`vault_postgres_host`, `vault_postgres_username`, `vault_postgres_password`) in the encrypted Vault file. The application container receives the generated datasource and S3 variables through `/opt/project-devops-deploy/app.env`. By default Ansible runs the app with `SPRING_PROFILES_ACTIVE=dev`, while still overriding the datasource to Yandex Managed PostgreSQL. Set `vault_spring_profiles: "prod"` when Object Storage is configured. The deploy playbook validates object storage credentials by writing and reading `bulletins/.deploy-check` before starting the app. The JDBC URL uses port `6432`, `sslmode=verify-full`, `sslrootcert=/app/root.crt`, and `targetServerType=master`, which matches Yandex MDB PostgreSQL access for Java.
+
+If deploy fails at the database readiness check with `password authentication failed`, the VM is already reaching Yandex Managed PostgreSQL. Check the encrypted Vault values against the MDB cluster: `vault_postgres_username`, `vault_postgres_password`, and `vault_postgres_database` must match an existing PostgreSQL user/database, and the user must have access to that database. Reset the MDB user password or update Vault with `.venv/bin/ansible-vault edit inventory/group_vars/app/vault.yml`, then rerun deploy with `ANSIBLE_ARGS='--ask-vault-pass'`.
 
 > **Fork policy**: this upstream repository is read-only. We do not review or merge pull requests and we do not accept infrastructure changes (Dockerfiles, Ansible roles, CI/CD workflows, etc.). To experiment or extend the project, fork it and work inside your own repository.
 
@@ -91,7 +172,7 @@ Key variables are read directly by Spring Boot (see `src/main/resources/applicat
 | `SPRING_DATASOURCE_PASSWORD` | DB password                                                   | `postgres`                                   |
 | `STORAGE_S3_BUCKET`          | Bucket name for bulletin images                               | empty                                        |
 | `STORAGE_S3_REGION`          | Region for the S3-compatible storage                          | empty                                        |
-| `STORAGE_S3_ENDPOINT`        | Optional custom endpoint                                      | empty                                        |
+| `STORAGE_S3_ENDPOINT`        | S3-compatible endpoint for YC Object Storage                  | `https://storage.yandexcloud.net`           |
 | `STORAGE_S3_ACCESSKEY`       | Access key ID                                                 | empty                                        |
 | `STORAGE_S3_SECRETKEY`       | Secret key                                                    | empty                                        |
 | `STORAGE_S3_CDNURL`          | Optional public CDN prefix                                    | empty                                        |
@@ -253,11 +334,32 @@ Override the host/port with `MANAGEMENT_SERVER_PORT` if you changed it; no Prome
 
 ### Production / S3
 
-1. Ensure the S3-related variables from the table above (bucket, region, access/secret keys, optional endpoint/CDN URL) are exported alongside the `prod` profile settings.
-2. Deploy backend (e.g., `java -jar build/libs/project-devops-deploy-0.0.1-SNAPSHOT.jar`).
-3. In the frontend (local or deployed), upload an image for a bulletin.
-4. Confirm expected behavior:
-    - Response from `/api/files/upload` contains a non-empty `key`.
-    - Image shows up in bulletin show view (URL should either point to CDN or be a presigned S3 link).
-    - Object exists in S3 bucket (check via AWS console or `aws s3 ls s3://your-bucket/bulletins/...`).
-5. Optional: run `curl -I "$(curl -s .../api/files/view?key=... | jq -r .url)"` to ensure the presigned URL is valid from the production environment.
+1. Ensure Vault contains `vault_spring_profiles: "prod"` and the `vault_s3_*` values from the Object Storage section.
+2. Deploy backend: `make deploy ANSIBLE_ARGS='--ask-vault-pass'`.
+3. Upload a small file through the deployed API:
+
+    ```bash
+    printf 's3 smoke test\n' >/tmp/s3-smoke.txt
+    curl -sS -F file=@/tmp/s3-smoke.txt https://hexlet.chickenkiller.com/api/files/upload | tee /tmp/s3-upload.json
+    KEY="$(jq -r .key /tmp/s3-upload.json)"
+    URL="$(jq -r .url /tmp/s3-upload.json)"
+    ```
+
+4. Confirm the presigned URL works:
+
+    ```bash
+    curl -fsSL "$URL"
+    curl -sS "https://hexlet.chickenkiller.com/api/files/view?key=$KEY" | jq .
+    ```
+
+5. Confirm the object exists in YC Object Storage:
+
+    ```bash
+    AWS_ACCESS_KEY_ID="<key_id>" \
+    AWS_SECRET_ACCESS_KEY="<secret>" \
+    aws --endpoint-url=https://storage.yandexcloud.net \
+      s3api head-object \
+      --bucket project-devops-deploy-images \
+      --key "$KEY" \
+      --region ru-central1
+    ```
