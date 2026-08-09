@@ -28,7 +28,7 @@ make ansible-provision
 
 The Ansible commands use `uv` to create a local `.venv` and install the Python tools from `pyproject.toml`, so a global Ansible installation is not required. `uv sync` uses `CA_CERT_FILE`, which defaults to `~/Downloads/CA.pem`; override it if the Yandex CA bundle is stored elsewhere. If `inventory/group_vars/app/vault.yml` exists and is encrypted, pass Vault options through `ANSIBLE_ARGS`, for example `make ansible-ping ANSIBLE_ARGS='--ask-vault-pass'`.
 
-The playbook at `playbooks/bootstrap.yml` installs Docker Engine, the Docker Compose plugin, base utilities, adds the `abdu` user to the `docker` group, and enables UFW with only SSH, HTTP/HTTPS, app port `8080`, and management port `9090` allowed. The playbook is intended to be idempotent, so repeated `make ansible-provision` runs should keep the server in the same expected state.
+The playbook at `playbooks/bootstrap.yml` installs Docker Engine, the Docker Compose plugin, base utilities, adds the `abdu` user to the `docker` group, and enables UFW with only SSH and HTTP/HTTPS allowed. The playbook is intended to be idempotent, so repeated `make ansible-provision` runs should keep the server in the same expected state.
 
 The deployment host is also available through DNS:
 
@@ -52,9 +52,9 @@ make deploy
 
 This runs `playbooks/deploy.yml`, pulls `ghcr.io/abdujabbar/project-devops-deploy:latest`, renders `/opt/project-devops-deploy/compose.yml`, checks the Yandex Managed PostgreSQL endpoint, runs the schema migration step, and restarts the app through Docker Compose. Runtime data is stored under `/opt/project-devops-deploy/data`, and application log mounts are prepared under `/opt/project-devops-deploy/logs`.
 
-The same Compose deployment starts an `nginx:1.29-alpine` reverse proxy on host ports `80` and `443`. Nginx forwards traffic to the internal `app:8080` service, caches static assets for 30 days, caches `/api/files/raw` for 10 minutes, caches `/api/files/view` for 2 minutes, and bypasses caching for uploads and non-GET requests. Cache files live under `/opt/project-devops-deploy/nginx-cache`.
+The same Compose deployment starts an `nginx:1.29-alpine` reverse proxy on host ports `80` and `443`. Nginx forwards traffic to the internal `app:8080` service, while app port `8080` and Actuator port `9090` are bound only to `127.0.0.1` on the VM for local health checks. Nginx caches static assets for 30 days, caches `/api/files/raw` for 10 minutes, caches `/api/files/view` for 2 minutes, and bypasses caching for uploads and non-GET requests. Cache files live under `/opt/project-devops-deploy/nginx-cache`.
 
-Let's Encrypt certificates are issued with a Certbot container using the webroot challenge under `/opt/project-devops-deploy/certbot-www`. Certificates are stored under `/opt/project-devops-deploy/letsencrypt`, mounted read-only into Nginx, and renewed by the host systemd timer `project-devops-deploy-certbot-renew.timer`. The renewal service reloads Nginx after `certbot renew`. Set `vault_letsencrypt_email` in Vault if you want Let's Encrypt expiry notices; if it is blank, Certbot registers without email. HTTPS uses TLS 1.2/1.3 only, disables session tickets, and redirects all ordinary HTTP traffic to HTTPS after the first certificate is available.
+Let's Encrypt certificates are issued with a pinned Certbot container using the webroot challenge under `/opt/project-devops-deploy/certbot-www`. Certificates are stored under `/opt/project-devops-deploy/letsencrypt`, mounted read-only into Nginx, and renewed by the host systemd timer `project-devops-deploy-certbot-renew.timer`. The renewal service reloads Nginx after `certbot renew`. Set `vault_letsencrypt_email` in Vault if you want Let's Encrypt expiry notices; if it is blank, Certbot registers without email. HTTPS uses TLS 1.2/1.3 only, disables session tickets, and redirects all ordinary HTTP traffic to HTTPS after the first certificate is available.
 
 Check HTTPS and renewal after deployment:
 
@@ -65,7 +65,7 @@ ssh -i ~/.ssh/abdu abdu@158.160.15.192 'systemctl list-timers project-devops-dep
 ssh -i ~/.ssh/abdu abdu@158.160.15.192 'sudo systemctl start project-devops-deploy-certbot-renew.service'
 ```
 
-PostgreSQL is expected to run in Yandex Managed PostgreSQL, not as a container on the VM. Configure the MDB security group so PostgreSQL is reachable only from the deployment VM, preferably through private network access. The VM firewall still exposes only SSH, HTTP/HTTPS, `8080`, and `9090`; database port `6432` is not opened publicly on the VM. During deploy, Ansible copies the bundled Yandex Cloud CA certificate to `/opt/project-devops-deploy/root.crt` and mounts it into the app containers for verified TLS connections.
+PostgreSQL is expected to run in Yandex Managed PostgreSQL, not as a container on the VM. Configure the MDB security group so PostgreSQL is reachable only from the deployment VM, preferably through private network access. The VM firewall exposes only SSH and HTTP/HTTPS; database port `6432`, app port `8080`, and management port `9090` are not opened publicly on the VM. During deploy, Ansible copies the bundled Yandex Cloud CA certificate to `/opt/project-devops-deploy/root.crt` and mounts it into the app containers for verified TLS connections.
 
 ### Yandex Object Storage
 

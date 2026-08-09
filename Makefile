@@ -91,7 +91,6 @@ ansible-ping: venv
 
 ansible-check: venv
 	$(ANSIBLE_PLAYBOOK_CMD) $(ANSIBLE_ARGS) -i $(ANSIBLE_INVENTORY) $(ANSIBLE_PLAYBOOK) --check --diff
-
 ansible-provision: venv
 	$(ANSIBLE_PLAYBOOK_CMD) $(ANSIBLE_ARGS) -i $(ANSIBLE_INVENTORY) $(ANSIBLE_PLAYBOOK)
 

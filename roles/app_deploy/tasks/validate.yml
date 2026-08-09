@@ -1,0 +1,88 @@
+---
+- name: Ensure application directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default(omit) }}"
+    group: "{{ item.group | default(omit) }}"
+    mode: "{{ item.mode | default(omit) }}"
+  loop:
+    - path: "{{ app_root_dir }}"
+      owner: root
+      group: root
+      mode: "0755"
+    - path: "{{ app_data_dir }}"
+      owner: "{{ app_container_uid }}"
+      group: "{{ app_container_gid }}"
+      mode: "0770"
+    - path: "{{ app_logs_dir }}"
+      owner: "{{ app_container_uid }}"
+      group: "{{ app_container_gid }}"
+      mode: "0770"
+    - path: "{{ app_nginx_conf_dir }}"
+      owner: root
+      group: root
+      mode: "0755"
+    - path: "{{ app_nginx_cache_dir }}"
+      owner: "{{ app_nginx_uid }}"
+      group: "{{ app_nginx_gid }}"
+      mode: "0770"
+    - path: "{{ app_letsencrypt_dir }}"
+      owner: root
+      group: root
+      mode: "0755"
+    - path: "{{ app_letsencrypt_webroot_dir }}"
+      owner: root
+      group: root
+      mode: "0755"
+
+- name: Validate managed database host
+  ansible.builtin.assert:
+    that:
+      - app_db_host | length > 0
+    fail_msg: "Set vault_postgres_host in encrypted inventory/group_vars/app/vault.yml before deploying."
+
+- name: Validate managed database name
+  ansible.builtin.assert:
+    that:
+      - app_db_name | length > 0
+    fail_msg: "Set vault_postgres_database in encrypted inventory/group_vars/app/vault.yml before deploying."
+
+- name: Validate managed database username
+  ansible.builtin.assert:
+    that:
+      - app_db_user | length > 0
+    fail_msg: "Set vault_postgres_username in encrypted inventory/group_vars/app/vault.yml before deploying."
+
+- name: Validate managed database password
+  ansible.builtin.assert:
+    that:
+      - app_db_password | length > 0
+    fail_msg: "Set vault_postgres_password in encrypted inventory/group_vars/app/vault.yml before deploying."
+
+- name: Validate object storage settings
+  ansible.builtin.assert:
+    that:
+      - app_s3_bucket | length > 0
+      - app_s3_region | length > 0
+      - app_s3_endpoint | length > 0
+      - app_s3_access_key | length > 0
+      - app_s3_secret_key | length > 0
+    fail_msg: >-
+      Set vault_s3_bucket, vault_s3_region, vault_s3_endpoint,
+      vault_s3_access_key, and vault_s3_secret_key in encrypted
+      inventory/group_vars/app/vault.yml before deploying with the prod profile.
+  when: "'prod' in ((app_spring_profiles | string).split(',') | map('trim') | list)"
+
+- name: Copy Yandex Cloud PostgreSQL CA certificate
+  ansible.builtin.copy:
+    src: root.crt
+    dest: "{{ app_db_ca_cert_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Check existing Let's Encrypt certificate
+  ansible.builtin.stat:
+    path: "{{ app_letsencrypt_cert_path }}"
+  register: letsencrypt_certificate

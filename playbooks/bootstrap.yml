@@ -104,6 +104,18 @@
       register: ufw_allow
       changed_when: "'Rule added' in ufw_allow.stdout"
 
+    - name: Check UFW status before removing legacy public ports
+      ansible.builtin.command: ufw status
+      register: ufw_status_before_cleanup
+      changed_when: false
+
+    - name: Remove legacy public TCP ports
+      ansible.builtin.command: "ufw delete allow {{ item }}/tcp"
+      loop: "{{ firewall_denied_tcp_ports | default([]) }}"
+      register: ufw_delete_legacy
+      changed_when: "'Rule deleted' in ufw_delete_legacy.stdout"
+      when: (item ~ "/tcp") in ufw_status_before_cleanup.stdout
+
     - name: Check UFW status before enabling
       ansible.builtin.command: ufw status
       register: ufw_status_before_enable
