@@ -2,7 +2,7 @@ UV ?= uv
 VENV_DIR ?= .venv
 UV_PYTHON ?= python3.12
 CA_CERT_FILE ?=
-UV_SYNC_ENV = $(if $(CA_CERT_FILE),SSL_CERT_FILE=$(CA_CERT_FILE),)
+CA_CERT_ENV = $(if $(CA_CERT_FILE),SSL_CERT_FILE=$(CA_CERT_FILE) REQUESTS_CA_BUNDLE=$(CA_CERT_FILE),)
 ANSIBLE ?= $(VENV_DIR)/bin/ansible
 ANSIBLE_PLAYBOOK_CMD ?= $(VENV_DIR)/bin/ansible-playbook
 ANSIBLE_GALAXY ?= $(VENV_DIR)/bin/ansible-galaxy
@@ -32,10 +32,10 @@ help:
 	@printf '  %s\n' 'make rollback IMAGE_TAG=<previous-git-sha>'
 
 venv:
-	$(UV_SYNC_ENV) $(UV) sync --python $(UV_PYTHON)
+	$(CA_CERT_ENV) $(UV) sync --python $(UV_PYTHON)
 
 collections: venv
-	$(ANSIBLE_GALAXY) collection install -r requirements.yml -p $(COLLECTIONS_PATH) $(ANSIBLE_GALAXY_ARGS)
+	$(CA_CERT_ENV) $(ANSIBLE_GALAXY) collection install -r requirements.yml -p $(COLLECTIONS_PATH) $(ANSIBLE_GALAXY_ARGS)
 
 ansible-ping: collections
 	$(ANSIBLE) $(ANSIBLE_ARGS) app -i $(ANSIBLE_INVENTORY) -m ping
