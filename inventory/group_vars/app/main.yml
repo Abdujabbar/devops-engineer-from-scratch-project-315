@@ -1,0 +1,94 @@
+---
+app_name: project-devops-deploy
+app_image_repository: ghcr.io/abdujabbar/project-devops-deploy
+app_image_tag: "{{ image_tag | default('') }}"
+app_container_name: project-devops-deploy
+app_root_dir: /opt/project-devops-deploy
+app_data_dir: "{{ app_root_dir }}/data"
+app_logs_dir: "{{ app_root_dir }}/logs"
+app_stable_image_tag_path: "{{ app_root_dir }}/stable-image-tag"
+app_mutable_image_tags:
+  - latest
+  - main
+  - master
+app_allow_mutable_image_tag: "{{ allow_mutable_image_tag | default(false) }}"
+app_container_uid: "100"
+app_container_gid: "101"
+
+app_db_host: "{{ vault_postgres_host | default('') }}"
+app_db_port: "{{ vault_postgres_port | default('6432') }}"
+app_db_name: "{{ vault_postgres_database | default('bulletins') }}"
+app_db_user: "{{ vault_postgres_username | default('') }}"
+app_db_password: "{{ vault_postgres_password | default('') }}"
+app_db_ssl_mode: "{{ vault_postgres_ssl_mode | default('verify-full') }}"
+app_db_target_server_type: "{{ vault_postgres_target_server_type | default('master') }}"
+app_db_target_session_attrs: "{{ vault_postgres_target_session_attrs | default('read-write') }}"
+app_db_client_image: postgres:16-alpine
+app_db_ca_cert_path: "{{ app_root_dir }}/root.crt"
+
+app_spring_profiles: "{{ vault_spring_profiles | default('dev') }}"
+app_migration_spring_profiles: "{{ app_spring_profiles }},test"
+
+app_s3_bucket: "{{ vault_s3_bucket | default((vault_app_secret_env | default({})).get('STORAGE_S3_BUCKET', '')) }}"
+app_s3_region: "{{ vault_s3_region | default((vault_app_secret_env | default({})).get('STORAGE_S3_REGION', 'ru-central1')) }}"
+app_s3_endpoint: "{{ vault_s3_endpoint | default((vault_app_secret_env | default({})).get('STORAGE_S3_ENDPOINT', 'https://storage.yandexcloud.net')) }}"
+app_s3_access_key: "{{ vault_s3_access_key | default((vault_app_secret_env | default({})).get('STORAGE_S3_ACCESSKEY', '')) }}"
+app_s3_secret_key: "{{ vault_s3_secret_key | default((vault_app_secret_env | default({})).get('STORAGE_S3_SECRETKEY', '')) }}"
+app_s3_cdn_url: "{{ vault_s3_cdn_url | default((vault_app_secret_env | default({})).get('STORAGE_S3_CDNURL', '')) }}"
+app_s3_client_image: amazon/aws-cli:2.36.10
+app_s3_deploy_check_key: bulletins/.deploy-check
+
+app_nginx_image: nginx:1.29-alpine
+app_nginx_container_name: project-devops-deploy-nginx
+app_nginx_conf_dir: "{{ app_root_dir }}/nginx"
+app_nginx_cache_dir: "{{ app_root_dir }}/nginx-cache"
+app_nginx_http_port: 80
+app_nginx_https_port: 443
+app_nginx_server_name: hexlet.chickenkiller.com
+app_nginx_cache_max_size: 256m
+app_nginx_client_max_body_size: 20m
+app_nginx_uid: "101"
+app_nginx_gid: "101"
+
+app_certbot_image: certbot/certbot:v5.7.0
+app_letsencrypt_email: "{{ vault_letsencrypt_email | default('') }}"
+app_letsencrypt_dir: "{{ app_root_dir }}/letsencrypt"
+app_letsencrypt_webroot_dir: "{{ app_root_dir }}/certbot-www"
+app_letsencrypt_cert_path: "{{ app_letsencrypt_dir }}/live/{{ app_nginx_server_name }}/fullchain.pem"
+app_letsencrypt_key_path: "{{ app_letsencrypt_dir }}/live/{{ app_nginx_server_name }}/privkey.pem"
+app_letsencrypt_renew_service: "{{ app_name }}-certbot-renew.service"
+app_letsencrypt_renew_timer: "{{ app_name }}-certbot-renew.timer"
+
+app_http_port: 8080
+app_management_port: 9090
+app_restart_policy: unless-stopped
+firewall_allowed_tcp_ports:
+  - "22"
+  - "80"
+  - "443"
+firewall_denied_tcp_ports:
+  - "8080"
+  - "9090"
+
+app_env:
+  SPRING_PROFILES_ACTIVE: "{{ app_spring_profiles }}"
+  MANAGEMENT_SERVER_PORT: "{{ app_management_port }}"
+  SPRING_DATASOURCE_URL: "jdbc:postgresql://{{ app_db_host }}:{{ app_db_port }}/{{ app_db_name }}?targetServerType={{ app_db_target_server_type }}&ssl=true&sslmode={{ app_db_ssl_mode }}&sslrootcert=/app/root.crt"
+  SPRING_DATASOURCE_USERNAME: "{{ app_db_user }}"
+  SPRING_DATASOURCE_PASSWORD: "{{ app_db_password }}"
+  STORAGE_S3_BUCKET: "{{ app_s3_bucket }}"
+  STORAGE_S3_REGION: "{{ app_s3_region }}"
+  STORAGE_S3_ENDPOINT: "{{ app_s3_endpoint }}"
+  STORAGE_S3_CDNURL: "{{ app_s3_cdn_url }}"
+  JAVA_OPTS: "-Djava.io.tmpdir=/data"
+
+app_secret_env: >-
+  {{
+    (vault_app_secret_env | default({}))
+    | combine({
+      'STORAGE_S3_ACCESSKEY': app_s3_access_key,
+      'STORAGE_S3_SECRETKEY': app_s3_secret_key
+    })
+  }}
+app_registry_username: "{{ vault_registry_username | default('') }}"
+app_registry_password: "{{ vault_registry_password | default('') }}"

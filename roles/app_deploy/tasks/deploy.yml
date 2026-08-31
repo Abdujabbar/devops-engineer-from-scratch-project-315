@@ -1,0 +1,37 @@
+---
+- name: Read previous stable image tag
+  ansible.builtin.import_tasks: read-stable-image.yml
+
+- name: Deploy image and mark it stable after health checks
+  block:
+    - name: Run external service preflight checks
+      ansible.builtin.import_tasks: preflight.yml
+
+    - name: Run database migrations
+      ansible.builtin.import_tasks: migrate.yml
+
+    - name: Start application services
+      ansible.builtin.import_tasks: start.yml
+
+    - name: Mark deployed image tag as stable
+      ansible.builtin.copy:
+        dest: "{{ app_stable_image_tag_path }}"
+        content: "{{ app_image_tag }}\n"
+        owner: root
+        group: root
+        mode: "0644"
+
+  rescue:
+    - name: Roll back to previous stable Docker image
+      ansible.builtin.include_tasks: rollback.yml
+      when: app_previous_stable_image_tag | length > 0
+
+    - name: Fail deployment after rollback handling
+      ansible.builtin.fail:
+        msg: >-
+          Deployment of {{ app_image_repository }}:{{ app_image_tag }} failed.
+          {% if app_previous_stable_image_tag | length > 0 -%}
+          Rolled back to stable image tag {{ app_previous_stable_image_tag }}.
+          {%- else -%}
+          No previous stable image tag was available, so automatic rollback was not possible.
+          {%- endif %}

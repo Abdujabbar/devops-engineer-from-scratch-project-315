@@ -1,0 +1,12 @@
+---
+- name: Run database migration step
+  community.docker.docker_compose_v2_run:
+    project_src: "{{ app_root_dir }}"
+    files:
+      - compose.yml
+    profiles:
+      - migration
+    service: migrate
+    cleanup: true
+  register: app_migration
+  changed_when: false

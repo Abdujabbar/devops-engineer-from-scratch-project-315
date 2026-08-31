@@ -1,0 +1,15 @@
+---
+- name: Validate deployment inputs and prepare directories
+  ansible.builtin.import_tasks: validate.yml
+
+- name: Render deployment configuration
+  ansible.builtin.import_tasks: render.yml
+
+- name: Deploy application services
+  ansible.builtin.import_tasks: deploy.yml
+
+- name: Configure TLS certificates
+  ansible.builtin.import_tasks: certbot.yml
+
+- name: Show deployment status
+  ansible.builtin.import_tasks: status.yml

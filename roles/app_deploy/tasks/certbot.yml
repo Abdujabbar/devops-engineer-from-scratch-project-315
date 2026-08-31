@@ -1,0 +1,89 @@
+---
+- name: Issue Let's Encrypt certificate with email
+  community.docker.docker_compose_v2_run:
+    project_src: "{{ app_root_dir }}"
+    files:
+      - compose.yml
+    profiles:
+      - certbot
+    service: certbot
+    cleanup: true
+    command: >-
+      certonly --webroot --webroot-path /var/www/certbot
+      --domain {{ app_nginx_server_name }}
+      --email {{ app_letsencrypt_email }}
+      --agree-tos --non-interactive --no-eff-email
+  register: certbot_issue
+  changed_when: true
+  when:
+    - not letsencrypt_certificate.stat.exists
+    - app_letsencrypt_email | length > 0
+
+- name: Issue Let's Encrypt certificate without email
+  community.docker.docker_compose_v2_run:
+    project_src: "{{ app_root_dir }}"
+    files:
+      - compose.yml
+    profiles:
+      - certbot
+    service: certbot
+    cleanup: true
+    command: >-
+      certonly --webroot --webroot-path /var/www/certbot
+      --domain {{ app_nginx_server_name }}
+      --agree-tos --non-interactive --register-unsafely-without-email
+  register: certbot_issue_without_email
+  changed_when: true
+  when:
+    - not letsencrypt_certificate.stat.exists
+    - app_letsencrypt_email | length == 0
+
+- name: Re-check Let's Encrypt certificate after issuance
+  ansible.builtin.stat:
+    path: "{{ app_letsencrypt_cert_path }}"
+  register: letsencrypt_certificate
+
+- name: Render Nginx config with HTTPS when certificate is available
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: "{{ app_nginx_conf_dir }}/default.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  register: nginx_config_final
+
+- name: Reload Nginx after certificate/config update
+  community.docker.docker_compose_v2_exec:
+    project_src: "{{ app_root_dir }}"
+    files:
+      - compose.yml
+    service: nginx
+    command: nginx -s reload
+  register: nginx_reload
+  changed_when: true
+  when:
+    - letsencrypt_certificate.stat.exists
+    - >
+      nginx_config_initial.changed
+      or nginx_config_final.changed
+      or (certbot_issue is defined and certbot_issue.changed)
+      or (certbot_issue_without_email is defined and certbot_issue_without_email.changed)
+
+- name: Enable Let's Encrypt renewal timer
+  ansible.builtin.systemd_service:
+    name: "{{ app_letsencrypt_renew_timer }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Wait for HTTPS reverse proxy
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ app_nginx_https_port }}/api/bulletins"
+    method: GET
+    status_code: 200
+    validate_certs: false
+  register: nginx_https_health
+  retries: 30
+  delay: 2
+  until: nginx_https_health.status == 200
+  when: letsencrypt_certificate.stat.exists

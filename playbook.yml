@@ -1,0 +1,3 @@
+---
+- name: Run infrastructure provisioning
+  ansible.builtin.import_playbook: playbooks/bootstrap.yml

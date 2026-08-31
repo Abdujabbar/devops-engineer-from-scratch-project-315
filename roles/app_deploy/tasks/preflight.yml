@@ -1,0 +1,129 @@
+---
+- name: Log in to container registry when credentials are configured
+  community.docker.docker_login:
+    registry_url: ghcr.io
+    username: "{{ app_registry_username }}"
+    password: "{{ app_registry_password }}"
+  no_log: true
+  when:
+    - app_registry_username | length > 0
+    - app_registry_password | length > 0
+
+- name: Pull Compose service images
+  community.docker.docker_compose_v2_pull:
+    project_src: "{{ app_root_dir }}"
+    files:
+      - compose.yml
+    services:
+      - app
+      - migrate
+      - nginx
+      - certbot
+    profiles:
+      - migration
+      - certbot
+    policy: always
+
+- name: Pull database client image
+  community.docker.docker_image_pull:
+    name: "{{ app_db_client_image }}"
+    pull: always
+
+- name: Pull object storage client image
+  community.docker.docker_image_pull:
+    name: "{{ app_s3_client_image }}"
+    pull: always
+  when: "'prod' in ((app_spring_profiles | string).split(',') | map('trim') | list)"
+
+- name: Check object storage write access
+  ansible.builtin.command:
+    argv:
+      - docker
+      - run
+      - --rm
+      - --entrypoint
+      - sh
+      - -e
+      - AWS_ACCESS_KEY_ID
+      - -e
+      - AWS_SECRET_ACCESS_KEY
+      - "{{ app_s3_client_image }}"
+      - -c
+      - >-
+        touch /tmp/deploy-check
+        && aws --endpoint-url {{ app_s3_endpoint }}
+        s3api put-object
+        --bucket {{ app_s3_bucket }}
+        --key {{ app_s3_deploy_check_key }}
+        --body /tmp/deploy-check
+        --region {{ app_s3_region }}
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ app_s3_access_key }}"
+    AWS_SECRET_ACCESS_KEY: "{{ app_s3_secret_key }}"
+  register: s3_write_access
+  changed_when: false
+  no_log: true
+  when: "'prod' in ((app_spring_profiles | string).split(',') | map('trim') | list)"
+
+- name: Check object storage read access
+  ansible.builtin.command:
+    argv:
+      - docker
+      - run
+      - --rm
+      - -e
+      - AWS_ACCESS_KEY_ID
+      - -e
+      - AWS_SECRET_ACCESS_KEY
+      - "{{ app_s3_client_image }}"
+      - --endpoint-url
+      - "{{ app_s3_endpoint }}"
+      - s3api
+      - head-object
+      - --bucket
+      - "{{ app_s3_bucket }}"
+      - --key
+      - "{{ app_s3_deploy_check_key }}"
+      - --region
+      - "{{ app_s3_region }}"
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ app_s3_access_key }}"
+    AWS_SECRET_ACCESS_KEY: "{{ app_s3_secret_key }}"
+  register: s3_read_access
+  changed_when: false
+  no_log: true
+  when: "'prod' in ((app_spring_profiles | string).split(',') | map('trim') | list)"
+
+- name: Check managed database readiness
+  ansible.builtin.command:
+    argv:
+      - docker
+      - run
+      - --rm
+      - -e
+      - PGPASSWORD
+      - -v
+      - "{{ app_db_ca_cert_path }}:/root/.postgresql/root.crt:ro"
+      - "{{ app_db_client_image }}"
+      - psql
+      - "host={{ app_db_host }} port={{ app_db_port }} dbname={{ app_db_name }} user={{ app_db_user }} sslmode={{ app_db_ssl_mode }} target_session_attrs={{ app_db_target_session_attrs }} sslrootcert=/root/.postgresql/root.crt"
+      - -c
+      - SELECT 1
+  environment:
+    PGPASSWORD: "{{ app_db_password }}"
+  register: db_readiness
+  changed_when: false
+  failed_when: false
+  retries: 30
+  delay: 2
+  until: >
+    db_readiness.rc == 0
+    or 'password authentication failed' in db_readiness.stderr
+
+- name: Fail when managed database is not ready
+  ansible.builtin.fail:
+    msg: >-
+      Managed PostgreSQL readiness check failed for user '{{ app_db_user }}'
+      and database '{{ app_db_name }}' at '{{ app_db_host }}:{{ app_db_port }}'.
+      Last error: {{ db_readiness.stderr | default(db_readiness.stdout, true) }}
+  when: db_readiness.rc != 0

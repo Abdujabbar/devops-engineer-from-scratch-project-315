@@ -1,0 +1,6 @@
+.venv/
+.ansible/
+.vault-password
+inventory/group_vars/app/vault.yml
+*.retry
+*.log

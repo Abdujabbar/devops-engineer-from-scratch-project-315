@@ -1,0 +1,37 @@
+---
+- name: Start or update application containers
+  community.docker.docker_compose_v2:
+    project_src: "{{ app_root_dir }}"
+    files:
+      - compose.yml
+    services:
+      - app
+      - nginx
+    state: present
+    pull: never
+    recreate: "{{ 'always' if docker_compose_file.changed | default(false) else 'auto' }}"
+    remove_orphans: true
+  register: app_compose_up
+
+- name: Wait for application health endpoint
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ app_management_port }}/actuator/health/readiness"
+    method: GET
+    status_code: 200
+  register: app_health
+  retries: 30
+  delay: 2
+  until: app_health.status == 200
+
+- name: Wait for Nginx reverse proxy
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ app_nginx_http_port }}/api/bulletins"
+    method: GET
+    status_code:
+      - 200
+      - 301
+    follow_redirects: none
+  register: nginx_health
+  retries: 30
+  delay: 2
+  until: nginx_health.status in [200, 301]

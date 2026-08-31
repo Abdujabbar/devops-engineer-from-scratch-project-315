@@ -1,0 +1,122 @@
+{% macro app_locations() %}
+    location = /api/files/upload {
+        proxy_request_buffering off;
+        proxy_pass http://app_backend;
+    }
+
+    location = /api/files/raw {
+        proxy_cache upload_cache;
+        proxy_cache_methods GET HEAD;
+        proxy_cache_valid 200 10m;
+        proxy_cache_valid 404 1m;
+        proxy_cache_lock on;
+        proxy_no_cache $skip_cache;
+        proxy_cache_bypass $skip_cache;
+        add_header X-Cache-Status $upstream_cache_status always;
+        proxy_pass http://app_backend;
+    }
+
+    location = /api/files/view {
+        proxy_cache upload_cache;
+        proxy_cache_methods GET HEAD;
+        proxy_cache_valid 200 2m;
+        proxy_cache_valid 404 1m;
+        proxy_cache_lock on;
+        proxy_no_cache $skip_cache;
+        proxy_cache_bypass $skip_cache;
+        add_header X-Cache-Status $upstream_cache_status always;
+        proxy_pass http://app_backend;
+    }
+
+    location ~* \.(?:css|js|mjs|map|png|jpg|jpeg|gif|svg|ico|webp|woff2?)$ {
+        proxy_cache static_cache;
+        proxy_cache_methods GET HEAD;
+        proxy_cache_valid 200 30d;
+        proxy_cache_valid 404 1m;
+        proxy_cache_lock on;
+        proxy_no_cache $skip_cache;
+        proxy_cache_bypass $skip_cache;
+        add_header Cache-Control "public, max-age=2592000, immutable" always;
+        add_header X-Cache-Status $upstream_cache_status always;
+        proxy_pass http://app_backend;
+    }
+
+    location / {
+        proxy_pass http://app_backend;
+    }
+{% endmacro %}
+proxy_cache_path /var/cache/nginx/static levels=1:2 keys_zone=static_cache:20m max_size={{ app_nginx_cache_max_size }} inactive=30d use_temp_path=off;
+proxy_cache_path /var/cache/nginx/uploads levels=1:2 keys_zone=upload_cache:20m max_size={{ app_nginx_cache_max_size }} inactive=1h use_temp_path=off;
+
+upstream app_backend {
+    server app:8080;
+    keepalive 32;
+}
+
+map $request_method $skip_cache {
+    default 1;
+    GET 0;
+    HEAD 0;
+}
+
+server {
+    listen 80;
+    server_name {{ app_nginx_server_name }} _;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type text/plain;
+        try_files $uri =404;
+    }
+
+{% if letsencrypt_certificate.stat.exists | default(false) %}
+    location / {
+        return 301 https://$host$request_uri;
+    }
+{% else %}
+    client_max_body_size {{ app_nginx_client_max_body_size }};
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Connection "";
+
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript application/xml image/svg+xml;
+
+{{ app_locations() }}
+{% endif %}
+}
+
+{% if letsencrypt_certificate.stat.exists | default(false) %}
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name {{ app_nginx_server_name }};
+
+    ssl_certificate /etc/letsencrypt/live/{{ app_nginx_server_name }}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{ app_nginx_server_name }}/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
+    ssl_prefer_server_ciphers off;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:TLS:10m;
+    ssl_session_tickets off;
+
+    add_header Strict-Transport-Security "max-age=15552000; includeSubDomains" always;
+
+    client_max_body_size {{ app_nginx_client_max_body_size }};
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header Connection "";
+
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript application/xml image/svg+xml;
+
+{{ app_locations() }}
+}
+{% endif %}

@@ -1,0 +1,72 @@
+services:
+  migrate:
+    image: "{{ app_image_repository }}:{{ app_image_tag }}"
+    profiles:
+      - migration
+    env_file:
+      - "{{ app_root_dir }}/app.env"
+    volumes:
+      - "{{ app_data_dir }}:/data"
+      - "{{ app_logs_dir }}:/var/log/project-devops-deploy"
+      - "{{ app_db_ca_cert_path }}:/app/root.crt:ro"
+    entrypoint:
+      - sh
+      - -c
+      - exec java $$JAVA_OPTS -jar /app/app.jar --spring.main.web-application-type=none --spring.profiles.active={{ app_migration_spring_profiles }}
+    networks:
+      - app_internal
+
+  app:
+    image: "{{ app_image_repository }}:{{ app_image_tag }}"
+    container_name: "{{ app_container_name }}"
+    restart: "{{ app_restart_policy }}"
+    env_file:
+      - "{{ app_root_dir }}/app.env"
+    ports:
+      - "127.0.0.1:{{ app_http_port }}:8080"
+      - "127.0.0.1:{{ app_management_port }}:{{ app_management_port }}"
+    volumes:
+      - "{{ app_data_dir }}:/data"
+      - "{{ app_logs_dir }}:/var/log/project-devops-deploy"
+      - "{{ app_db_ca_cert_path }}:/app/root.crt:ro"
+    networks:
+      - app_internal
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  nginx:
+    image: "{{ app_nginx_image }}"
+    container_name: "{{ app_nginx_container_name }}"
+    restart: "{{ app_restart_policy }}"
+    depends_on:
+      - app
+    ports:
+      - "{{ app_nginx_http_port }}:80"
+      - "{{ app_nginx_https_port }}:443"
+    volumes:
+      - "{{ app_nginx_conf_dir }}:/etc/nginx/conf.d:ro"
+      - "{{ app_nginx_cache_dir }}:/var/cache/nginx"
+      - "{{ app_letsencrypt_webroot_dir }}:/var/www/certbot:ro"
+      - "{{ app_letsencrypt_dir }}:/etc/letsencrypt:ro"
+    networks:
+      - app_internal
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  certbot:
+    image: "{{ app_certbot_image }}"
+    profiles:
+      - certbot
+    volumes:
+      - "{{ app_letsencrypt_webroot_dir }}:/var/www/certbot"
+      - "{{ app_letsencrypt_dir }}:/etc/letsencrypt"
+
+networks:
+  app_internal:
+    name: "{{ app_name }}-internal"

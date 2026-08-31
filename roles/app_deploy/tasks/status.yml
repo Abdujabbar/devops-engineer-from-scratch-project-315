@@ -1,0 +1,13 @@
+---
+- name: Show running deployment
+  community.docker.docker_container_info:
+    name: "{{ app_container_name }}"
+  register: app_container_state
+
+- name: Print deployment state
+  ansible.builtin.debug:
+    msg:
+      - "Image={{ app_container_state.container.Config.Image }}"
+      - "State={{ app_container_state.container.State.Status }}"
+      - "Started={{ app_container_state.container.State.StartedAt }}"
+  when: app_container_state.exists | default(false)

@@ -1,0 +1,34 @@
+---
+- name: Read stable image tag for rollback
+  ansible.builtin.import_tasks: read-stable-image.yml
+  when: app_previous_stable_image_tag is not defined
+
+- name: Select rollback image tag
+  ansible.builtin.set_fact:
+    app_image_tag: "{{ rollback_image_tag | default(app_previous_stable_image_tag | default(''), true) }}"
+
+- name: Validate rollback image tag
+  ansible.builtin.assert:
+    that:
+      - app_image_tag | length > 0
+      - app_allow_mutable_image_tag | bool or app_image_tag not in app_mutable_image_tags
+    fail_msg: >-
+      Rollback needs an immutable stable image tag. Run a successful deploy with
+      IMAGE_TAG=<git-sha> first, or pass -e rollback_image_tag=<git-sha>.
+
+- name: Render rollback deployment configuration
+  ansible.builtin.import_tasks: render.yml
+
+- name: Pull rollback image and support service images
+  ansible.builtin.import_tasks: preflight.yml
+
+- name: Start stable application image
+  ansible.builtin.import_tasks: start.yml
+
+- name: Persist rollback image as current stable image
+  ansible.builtin.copy:
+    dest: "{{ app_stable_image_tag_path }}"
+    content: "{{ app_image_tag }}\n"
+    owner: root
+    group: root
+    mode: "0644"

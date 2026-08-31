@@ -1,0 +1,27 @@
+---
+- name: Roll back application container to a stable Docker image
+  hosts: app
+  become: true
+  gather_facts: false
+  collections:
+    - community.docker
+
+  pre_tasks:
+    - name: Check optional Ansible Vault file
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/../inventory/group_vars/app/vault.yml"
+      register: app_vault_file
+      delegate_to: localhost
+      become: false
+
+    - name: Load encrypted deployment secrets
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../inventory/group_vars/app/vault.yml"
+      when: app_vault_file.stat.exists
+      no_log: true
+
+  tasks:
+    - name: Run rollback tasks
+      ansible.builtin.import_role:
+        name: app_deploy
+        tasks_from: rollback

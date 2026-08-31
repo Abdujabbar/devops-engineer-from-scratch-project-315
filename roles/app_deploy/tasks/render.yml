@@ -1,0 +1,43 @@
+---
+- name: Render Docker Compose file
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ app_root_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: "0644"
+  register: docker_compose_file
+
+- name: Render Let's Encrypt renewal service
+  ansible.builtin.template:
+    src: certbot-renew.service.j2
+    dest: "/etc/systemd/system/{{ app_letsencrypt_renew_service }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Render Let's Encrypt renewal timer
+  ansible.builtin.template:
+    src: certbot-renew.timer.j2
+    dest: "/etc/systemd/system/{{ app_letsencrypt_renew_timer }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Render Nginx reverse proxy config
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: "{{ app_nginx_conf_dir }}/default.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  register: nginx_config_initial
+
+- name: Render application environment file
+  ansible.builtin.template:
+    src: app.env.j2
+    dest: "{{ app_root_dir }}/app.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true

@@ -1,0 +1,44 @@
+---
+- name: Check stable image tag file
+  ansible.builtin.stat:
+    path: "{{ app_stable_image_tag_path }}"
+  register: app_stable_image_tag_file
+
+- name: Read stable image tag file
+  ansible.builtin.slurp:
+    src: "{{ app_stable_image_tag_path }}"
+  register: app_stable_image_tag_content
+  when: app_stable_image_tag_file.stat.exists
+
+- name: Inspect currently running application container
+  community.docker.docker_container_info:
+    name: "{{ app_container_name }}"
+  register: app_existing_container
+  failed_when: false
+
+- name: Resolve currently running application image
+  ansible.builtin.set_fact:
+    app_running_image: "{{ app_existing_container.container.Config.Image | default('') }}"
+
+- name: Resolve currently running application image tag
+  ansible.builtin.set_fact:
+    app_running_image_tag: >-
+      {{
+        app_running_image
+        | regex_replace('^' ~ (app_image_repository | regex_escape) ~ ':', '')
+      }}
+  when: app_running_image is match('^' ~ (app_image_repository | regex_escape) ~ ':')
+
+- name: Set previous stable image tag
+  ansible.builtin.set_fact:
+    app_previous_stable_image_tag: >-
+      {{
+        (
+          app_stable_image_tag_content.content
+          | default('')
+          | b64decode
+          | trim
+        )
+        if app_stable_image_tag_file.stat.exists
+        else (app_running_image_tag | default(''))
+      }}
