@@ -18,10 +18,8 @@
       - app
       - migrate
       - nginx
-      - certbot
     profiles:
       - migration
-      - certbot
     policy: always
 
 - name: Pull database client image

@@ -1,0 +1,16 @@
+---
+base_packages:
+  - ca-certificates
+  - curl
+  - gnupg
+  - lsb-release
+  - python3-requests
+  - ufw
+
+firewall_allowed_tcp_ports:
+  - "22"
+  - "80"
+  - "443"
+firewall_denied_tcp_ports:
+  - "8080"
+  - "9090"

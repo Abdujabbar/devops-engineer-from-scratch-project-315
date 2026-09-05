@@ -45,7 +45,7 @@ Docker build context.
 - Vault values for PostgreSQL, registry credentials when needed, and S3 when
   the `prod` profile is enabled
 
-Install Python tooling and Ansible Galaxy collections:
+Install Python tooling, Ansible Galaxy roles, and collections:
 
 ```bash
 make collections
@@ -58,8 +58,9 @@ make collections CA_CERT_FILE=/path/to/ca-bundle.pem
 ```
 
 The same `CA_CERT_FILE` is passed to both `uv` and `ansible-galaxy`. The Galaxy
-dependencies are declared in `requirements.yml`. Docker Compose operations use
-`community.docker`; UFW uses `community.general`.
+dependencies are declared in `requirements.yml`. Docker provisioning uses the
+`geerlingguy.docker` role, TLS certificates use `geerlingguy.certbot`, Docker
+Compose operations use `community.docker`, and UFW uses `community.general`.
 
 If your local `~/.netrc` has permissive permissions and `ansible-galaxy` refuses
 to run, either restrict that file to owner-only permissions or run the local
@@ -76,8 +77,9 @@ make ansible-ping
 make ansible-provision
 ```
 
-Provisioning installs Docker Engine and the Compose plugin, grants the app user
-access to Docker, and configures UFW to expose only SSH, HTTP, and HTTPS.
+Provisioning installs Docker Engine and the Compose plugin through the
+`geerlingguy.docker` role, grants the app user access to Docker, and configures
+UFW to expose only SSH, HTTP, and HTTPS.
 
 The application and Actuator ports are not exposed publicly. In the rendered
 Compose file they are bound to localhost on the VM:
@@ -109,15 +111,20 @@ The deploy playbook:
 
 1. Validates required image/database/storage inputs.
 2. Renders `/opt/project-devops-deploy/compose.yml`, `app.env`, Nginx config,
-   and Certbot renewal systemd units.
-3. Pulls the selected application image plus Nginx/Certbot support images.
+   and runtime directories.
+3. Pulls the selected application image plus the Nginx image.
 4. Checks Yandex Managed PostgreSQL readiness.
 5. Checks Yandex Object Storage write/read access when the `prod` profile is
    enabled.
 6. Runs the migration container.
 7. Starts the app and Nginx through Docker Compose.
 8. Waits for the app readiness endpoint and Nginx proxy endpoint.
-9. Issues a Let's Encrypt certificate when one is missing and enables renewal.
+9. Uses the `geerlingguy.certbot` role to issue a Let's Encrypt certificate
+   when one is missing and configure renewal.
+
+Let's Encrypt certificates are stored on the host in `/etc/letsencrypt`. The
+Nginx container mounts that directory read-only, and Certbot renewal reloads the
+running Nginx container through a deploy hook.
 
 After a successful health check, Ansible writes the deployed tag to:
 

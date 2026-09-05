@@ -1,42 +1,7 @@
 ---
-- name: Issue Let's Encrypt certificate with email
-  community.docker.docker_compose_v2_run:
-    project_src: "{{ app_root_dir }}"
-    files:
-      - compose.yml
-    profiles:
-      - certbot
-    service: certbot
-    cleanup: true
-    command: >-
-      certonly --webroot --webroot-path /var/www/certbot
-      --domain {{ app_nginx_server_name }}
-      --email {{ app_letsencrypt_email }}
-      --agree-tos --non-interactive --no-eff-email
-  register: certbot_issue
-  changed_when: true
-  when:
-    - not letsencrypt_certificate.stat.exists
-    - app_letsencrypt_email | length > 0
-
-- name: Issue Let's Encrypt certificate without email
-  community.docker.docker_compose_v2_run:
-    project_src: "{{ app_root_dir }}"
-    files:
-      - compose.yml
-    profiles:
-      - certbot
-    service: certbot
-    cleanup: true
-    command: >-
-      certonly --webroot --webroot-path /var/www/certbot
-      --domain {{ app_nginx_server_name }}
-      --agree-tos --non-interactive --register-unsafely-without-email
-  register: certbot_issue_without_email
-  changed_when: true
-  when:
-    - not letsencrypt_certificate.stat.exists
-    - app_letsencrypt_email | length == 0
+- name: Install Certbot and issue Let's Encrypt certificate
+  ansible.builtin.include_role:
+    name: geerlingguy.certbot
 
 - name: Re-check Let's Encrypt certificate after issuance
   ansible.builtin.stat:
@@ -66,15 +31,6 @@
     - >
       nginx_config_initial.changed
       or nginx_config_final.changed
-      or (certbot_issue is defined and certbot_issue.changed)
-      or (certbot_issue_without_email is defined and certbot_issue_without_email.changed)
-
-- name: Enable Let's Encrypt renewal timer
-  ansible.builtin.systemd_service:
-    name: "{{ app_letsencrypt_renew_timer }}"
-    enabled: true
-    state: started
-    daemon_reload: true
 
 - name: Wait for HTTPS reverse proxy
   ansible.builtin.uri:

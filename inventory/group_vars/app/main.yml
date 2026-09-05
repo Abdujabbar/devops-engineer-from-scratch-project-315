@@ -50,25 +50,15 @@ app_nginx_client_max_body_size: 20m
 app_nginx_uid: "101"
 app_nginx_gid: "101"
 
-app_certbot_image: certbot/certbot:v5.7.0
 app_letsencrypt_email: "{{ vault_letsencrypt_email | default('') }}"
-app_letsencrypt_dir: "{{ app_root_dir }}/letsencrypt"
+app_letsencrypt_dir: /etc/letsencrypt
 app_letsencrypt_webroot_dir: "{{ app_root_dir }}/certbot-www"
 app_letsencrypt_cert_path: "{{ app_letsencrypt_dir }}/live/{{ app_nginx_server_name }}/fullchain.pem"
 app_letsencrypt_key_path: "{{ app_letsencrypt_dir }}/live/{{ app_nginx_server_name }}/privkey.pem"
-app_letsencrypt_renew_service: "{{ app_name }}-certbot-renew.service"
-app_letsencrypt_renew_timer: "{{ app_name }}-certbot-renew.timer"
 
 app_http_port: 8080
 app_management_port: 9090
 app_restart_policy: unless-stopped
-firewall_allowed_tcp_ports:
-  - "22"
-  - "80"
-  - "443"
-firewall_denied_tcp_ports:
-  - "8080"
-  - "9090"
 
 app_env:
   SPRING_PROFILES_ACTIVE: "{{ app_spring_profiles }}"

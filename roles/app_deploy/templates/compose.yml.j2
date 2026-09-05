@@ -58,15 +58,6 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
-
-  certbot:
-    image: "{{ app_certbot_image }}"
-    profiles:
-      - certbot
-    volumes:
-      - "{{ app_letsencrypt_webroot_dir }}:/var/www/certbot"
-      - "{{ app_letsencrypt_dir }}:/etc/letsencrypt"
-
 networks:
   app_internal:
     name: "{{ app_name }}-internal"

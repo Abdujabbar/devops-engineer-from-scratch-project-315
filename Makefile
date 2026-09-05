@@ -10,6 +10,7 @@ ANSIBLE_INVENTORY ?= inventory/hosts.yml
 ANSIBLE_PLAYBOOK ?= playbooks/bootstrap.yml
 DEPLOY_PLAYBOOK ?= playbooks/deploy.yml
 ROLLBACK_PLAYBOOK ?= playbooks/rollback.yml
+ROLES_PATH ?= .ansible/roles
 COLLECTIONS_PATH ?= .ansible/collections
 ANSIBLE_GALAXY_ARGS ?=
 IMAGE_TAG ?=
@@ -19,6 +20,7 @@ help:
 	@printf '%s\n' 'Available commands:'
 	@printf '  %-18s %s\n' 'make help' 'Show this help message.'
 	@printf '  %-18s %s\n' 'make venv' 'Create .venv and sync Python tools with uv.'
+	@printf '  %-18s %s\n' 'make roles' 'Install Ansible Galaxy roles.'
 	@printf '  %-18s %s\n' 'make collections' 'Install Ansible Galaxy collections.'
 	@printf '  %-18s %s\n' 'make ansible-ping' 'Check SSH/Ansible connectivity to the VM.'
 	@printf '  %-18s %s\n' 'make syntax-check' 'Validate Ansible playbook syntax.'
@@ -34,7 +36,10 @@ help:
 venv:
 	$(CA_CERT_ENV) $(UV) sync --python $(UV_PYTHON)
 
-collections: venv
+roles: venv
+	$(CA_CERT_ENV) $(ANSIBLE_GALAXY) role install -r requirements.yml -p $(ROLES_PATH) $(ANSIBLE_GALAXY_ARGS)
+
+collections: roles
 	$(CA_CERT_ENV) $(ANSIBLE_GALAXY) collection install -r requirements.yml -p $(COLLECTIONS_PATH) $(ANSIBLE_GALAXY_ARGS)
 
 ansible-ping: collections
@@ -58,4 +63,4 @@ deploy: collections
 rollback: collections
 	$(ANSIBLE_PLAYBOOK_CMD) $(ANSIBLE_ARGS) -i $(ANSIBLE_INVENTORY) $(ROLLBACK_PLAYBOOK) $(if $(IMAGE_TAG),-e rollback_image_tag=$(IMAGE_TAG),)
 
-.PHONY: help venv collections ansible-ping syntax-check ansible-check ansible-provision deploy rollback
+.PHONY: help venv roles collections ansible-ping syntax-check ansible-check ansible-provision deploy rollback
